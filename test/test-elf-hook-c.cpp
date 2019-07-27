@@ -19,7 +19,7 @@ extern "C"
         return x * y;
     }
 
-    int mock_static_multiply(int x, int y)
+    static int mock_static_multiply(int x, int y)
     {
         return x + y;
     }

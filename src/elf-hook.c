@@ -10,9 +10,12 @@
 
 #include "dl-addr.h"
 #include "elf-defs.h"
-#include "elf-reader.h"
+#include "elf-relocation.h"
+#include "elf-symbol.h"
 #include "elf-hook.h"
 #include "elf-file.h"
+#include "elf-section.h"
+#include "elf-string.h"
 #include "errors.h"
 
 typedef void* (*relocation_fixup_t)(Elf_Rel *rel, void *module_address, void *substitution);
@@ -124,8 +127,8 @@ static void *elf_hook_internal(int descriptor, void *module_address, size_t symb
     void *original = NULL;
 
     if (
-        elf_section_by_name(descriptor, REL_PLT, &rel_plt) ||  //get ".rel.plt" (for 32-bit) or ".rela.plt" (for 64-bit) section
-        elf_section_by_name(descriptor, REL_DYN, &rel_dyn)  //get ".rel.dyn" (for 32-bit) or ".rela.dyn" (for 64-bit) section
+        elf_section_find_by_name(descriptor, REL_PLT, &rel_plt) ||  //get ".rel.plt" (for 32-bit) or ".rela.plt" (for 64-bit) section
+        elf_section_find_by_name(descriptor, REL_DYN, &rel_dyn)  //get ".rel.dyn" (for 32-bit) or ".rela.dyn" (for 64-bit) section
        )
     {
         free(rel_plt);
@@ -180,15 +183,15 @@ static void *elf_hook_internal(int descriptor, void *module_address, size_t symb
     return original;
 }
 
-static int elf_dynsymbol_index_by_name(int descriptor, char const *name, size_t *index)
+static int elf_dynsymbol_find_index_by_name(int descriptor, char const *name, size_t *index)
 {
     int result = SUCCESS;
     Elf_Shdr *dynsym = NULL;
 
     TRY
     {
-        CHECK_RESULT(elf_section_by_type(descriptor, SHT_DYNSYM, &dynsym));
-        CHECK_RESULT(elf_symbol_index_by_name(descriptor, dynsym, name, index));
+        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
+        CHECK_RESULT(elf_symbol_find_index_by_name(descriptor, dynsym, name, index));
     }
     CATCH(error)
     {
@@ -196,21 +199,20 @@ static int elf_dynsymbol_index_by_name(int descriptor, char const *name, size_t 
         result = error;
     }
 
-    if (dynsym != NULL)
-        free(dynsym);
+    elf_section_destroy(dynsym);
 
     return result;
 }
 
-static int elf_dynsymbol_index_by_address(int descriptor, Elf_Addr address, size_t *index)
+static int elf_dynsymbol_find_index_by_address(int descriptor, Elf_Addr address, size_t *index)
 {
     int result = SUCCESS;
     Elf_Shdr *dynsym = NULL;
 
     TRY
     {
-        CHECK_RESULT(elf_section_by_type(descriptor, SHT_DYNSYM, &dynsym));
-        CHECK_RESULT(elf_symbol_index_by_address(descriptor, dynsym, address, index));
+        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
+        CHECK_RESULT(elf_symbol_find_index_by_address(descriptor, dynsym, address, index));
     }
     CATCH(error)
     {
@@ -218,8 +220,7 @@ static int elf_dynsymbol_index_by_address(int descriptor, Elf_Addr address, size
         result = error;
     }
 
-    if (dynsym != NULL)
-        free(dynsym);
+    elf_section_destroy(dynsym);
 
     return result;
 }
@@ -242,7 +243,7 @@ void *elf_hook(void *function_address, void *substitution_address)
 
         size_t symbol_index = -1;
         Elf_Addr symbol_address = function_address - module_address;
-        CHECK_RESULT(elf_dynsymbol_index_by_address(descriptor, symbol_address, &symbol_index));
+        CHECK_RESULT(elf_dynsymbol_find_index_by_address(descriptor, symbol_address, &symbol_index));
 
         result = elf_hook_internal(descriptor, module_address, symbol_index, substitution_address);
     }
@@ -270,7 +271,7 @@ void *elf_hook_dl(const char *module_filename, void *module_address, const char 
     {
         size_t symbol_index = -1;
         CHECK_RESULT(elf_file_open(module_filename, &descriptor));
-        CHECK_RESULT(elf_dynsymbol_index_by_name(descriptor, name, &symbol_index));
+        CHECK_RESULT(elf_dynsymbol_find_index_by_name(descriptor, name, &symbol_index));
 
         result = elf_hook_internal(descriptor, module_address, symbol_index, substitution);
     }

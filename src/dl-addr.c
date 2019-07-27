@@ -13,7 +13,9 @@
 
 #include "dl-addr.h"
 #include "elf-defs.h"
-#include "elf-reader.h"
+#include "elf-section.h"
+#include "elf-string.h"
+#include "elf-symbol.h"
 
 int get_module_base_address(void *address, char const **module_filename, void **module_base_address)
 {
@@ -48,10 +50,10 @@ int get_module_base_address_dl(void *handle, char const *module_filename, void *
     if (descriptor < 0)
         return errno;
 
-    if (elf_section_by_type(descriptor, SHT_DYNSYM, &dynsym) ||  //get ".dynsym" section
-        elf_section_by_index(descriptor, dynsym->sh_link, &strings_section) ||
-        elf_read_string_table(descriptor, strings_section, &strings) ||
-        elf_read_symbol_table(descriptor, dynsym, &symbols))
+    if (elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym) ||  //get ".dynsym" section
+        elf_section_find_by_index(descriptor, dynsym->sh_link, &strings_section) ||
+        elf_string_read_table(descriptor, strings_section, &strings) ||
+        elf_symbol_read_table(descriptor, dynsym, &symbols))
     {
         free(strings_section);
         free((void *)strings);
