@@ -18,7 +18,49 @@
 #include "elf-string.h"
 #include "errors.h"
 
-typedef void* (*relocation_fixup_t)(Elf_Rel *rel, void *module_address, void *substitution);
+typedef void* (*elf_relocation_fixup_t)(Elf_Rel *rel, void *module_address, void *substitution);
+
+static int elf_dynsymbol_find_index_by_name(int descriptor, char const *name, size_t *index)
+{
+    int result = SUCCESS;
+    Elf_Shdr *dynsym = NULL;
+
+    TRY
+    {
+        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
+        CHECK_RESULT(elf_symbol_find_index_by_name(descriptor, dynsym, name, index));
+    }
+    CATCH(error)
+    {
+        fprintf(stderr, "Failed to get .dynsym symbol for %s, error: %s\n", name, strerror(error));
+        result = error;
+    }
+
+    elf_section_destroy(dynsym);
+
+    return result;
+}
+
+static int elf_dynsymbol_find_index_by_address(int descriptor, Elf_Addr address, size_t *index)
+{
+    int result = SUCCESS;
+    Elf_Shdr *dynsym = NULL;
+
+    TRY
+    {
+        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
+        CHECK_RESULT(elf_symbol_find_index_by_address(descriptor, dynsym, address, index));
+    }
+    CATCH(error)
+    {
+        fprintf(stderr, "Failed to get .dynsym symbol for %p, error: %s\n", (void*)address, strerror(error));
+        result = error;
+    }
+
+    elf_section_destroy(dynsym);
+
+    return result;
+}
 
 static void* rel_jump_slot_fixup(Elf_Rel *rel, void *module_address, void *substitution)
 {
@@ -90,7 +132,7 @@ static void* rel_empty_fixup(Elf_Rel *rel, void *module_address, void *substitut
     return NULL;
 }
 
-static relocation_fixup_t get_rel_plt_fixup(Elf_Rel *rel)
+static elf_relocation_fixup_t get_rel_plt_fixup(Elf_Rel *rel)
 {
     switch (ELF_R_TYPE(rel->r_info))
     {
@@ -101,7 +143,7 @@ static relocation_fixup_t get_rel_plt_fixup(Elf_Rel *rel)
     return rel_empty_fixup;
 }
 
-static relocation_fixup_t get_rel_dyn_fixup(Elf_Rel *rel)
+static elf_relocation_fixup_t get_rel_dyn_fixup(Elf_Rel *rel)
 {
     switch (ELF_R_TYPE(rel->r_info))
     {
@@ -113,116 +155,83 @@ static relocation_fixup_t get_rel_dyn_fixup(Elf_Rel *rel)
     return rel_empty_fixup;
 }
 
-static void *elf_hook_internal(int descriptor, void *module_address, size_t symbol_index, void *substitution)
+static void *elf_hook_plt(int descriptor, void *module_address, size_t symbol_index, void *substitution)
 {
     Elf_Shdr *rel_plt = NULL;
+    void *result = NULL;
+
+    TRY
+    {
+        CHECK_RESULT(elf_section_find_by_name(descriptor, REL_PLT, &rel_plt))
+
+        Elf_Rel *rel_plt_table = (Elf_Rel *)(((size_t)module_address) + rel_plt->sh_addr);
+        size_t rel_plt_amount = rel_plt->sh_size / sizeof(Elf_Rel);
+
+        for (size_t index = 0; index < rel_plt_amount; ++index)
+        {
+            Elf_Rel rel = rel_plt_table[index];
+            size_t rel_symbol_index = ELF_R_SYM(rel.r_info);
+            
+            if (rel_symbol_index == symbol_index)
+            {
+                elf_relocation_fixup_t fixup = get_rel_plt_fixup(&rel);
+                result = fixup(&rel, module_address, substitution);
+
+                break;
+            }
+        }
+    }
+    CATCH(error)
+    { 
+        fprintf(stderr, "Failed to hook symbol %lu with %p, error: %s\n", symbol_index, substitution, strerror(error));
+    }
+
+    elf_section_destroy(rel_plt);
+
+    return result;
+}
+
+static void *elf_hook_dyn(int descriptor, void *module_address, size_t symbol_index, void *substitution)
+{
     Elf_Shdr *rel_dyn = NULL;
+    void *result = NULL;
 
-    Elf_Rel *rel_plt_table = NULL;
-    Elf_Rel *rel_dyn_table = NULL;
+    TRY
+    {
+        CHECK_RESULT(elf_section_find_by_name(descriptor, REL_DYN, &rel_dyn))
 
-    size_t rel_plt_amount;
-    size_t rel_dyn_amount;
+        Elf_Rel *rel_dyn_table = (Elf_Rel *)(((size_t)module_address) + rel_dyn->sh_addr);
+        size_t rel_dyn_amount = rel_dyn->sh_size / sizeof(Elf_Rel);
 
+        for (size_t index = 0; index < rel_dyn_amount; ++index)
+        {
+            Elf_Rel rel = rel_dyn_table[index];
+            size_t rel_symbol_index = ELF_R_SYM(rel.r_info);
+
+            if (rel_symbol_index == symbol_index)
+            {
+                elf_relocation_fixup_t fixup = get_rel_dyn_fixup(&rel);
+                result = fixup(&rel, module_address, substitution);
+            }
+        }
+    }
+    CATCH(error)
+    { 
+        fprintf(stderr, "Failed to hook symbol %lu with %p, error: %s\n", symbol_index, substitution, strerror(error));
+    }
+
+    elf_section_destroy(rel_dyn);
+
+    return result;
+}
+
+static void *elf_hook_internal(int descriptor, void *module_address, size_t symbol_index, void *substitution)
+{
     void *original = NULL;
-
-    if (
-        elf_section_find_by_name(descriptor, REL_PLT, &rel_plt) ||  //get ".rel.plt" (for 32-bit) or ".rela.plt" (for 64-bit) section
-        elf_section_find_by_name(descriptor, REL_DYN, &rel_dyn)  //get ".rel.dyn" (for 32-bit) or ".rela.dyn" (for 64-bit) section
-       )
-    {
-        free(rel_plt);
-        free(rel_dyn);
-
-        return original;
-    }
-
-    rel_plt_table = (Elf_Rel *)(((size_t)module_address) + rel_plt->sh_addr);  //init the ".rel.plt" array
-    rel_plt_amount = rel_plt->sh_size / sizeof(Elf_Rel);  //and get its size
-
-    rel_dyn_table = (Elf_Rel *)(((size_t)module_address) + rel_dyn->sh_addr);  //init the ".rel.dyn" array
-    rel_dyn_amount = rel_dyn->sh_size / sizeof(Elf_Rel);  //and get its size
-
-    //release the data used
-    free(rel_plt);
-    free(rel_dyn);
-
-    //now we've got ".rel.plt" (needed for PIC) table and ".rel.dyn" (for non-PIC) table and the symbol's index
-    for (size_t i = 0; i < rel_plt_amount; ++i)  //lookup the ".rel.plt" table
-    {
-        Elf_Rel rel = rel_plt_table[i];
-        size_t rel_symbol_index = ELF_R_SYM(rel.r_info);
-        
-        if (rel_symbol_index == symbol_index)  //if we found the symbol to substitute in ".rel.plt"
-        {
-            relocation_fixup_t fixup = get_rel_plt_fixup(&rel);
-            original = fixup(&rel, module_address, substitution);
-
-            break;  //the target symbol appears in ".rel.plt" only once
-        }
-    }
-
-    if (original)
-    {
-        return original;
-    }
-
-    //we will get here only with 32-bit non-PIC module
-    for (size_t i = 0; i < rel_dyn_amount; ++i)  //lookup the ".rel.dyn" table
-    {
-        Elf_Rel rel = rel_dyn_table[i];
-        size_t rel_symbol_index = ELF_R_SYM(rel.r_info);
-
-        if (rel_symbol_index == symbol_index)  //if we found the symbol to substitute in ".rel.dyn"
-        {
-            relocation_fixup_t fixup = get_rel_dyn_fixup(&rel);
-            original = fixup(&rel, module_address, substitution);
-        }
-    }
+    original = original == NULL ? elf_hook_plt(descriptor, module_address, symbol_index, substitution) : original;
+    original = original == NULL ? elf_hook_dyn(descriptor, module_address, symbol_index, substitution) : original;
 
     return original;
-}
-
-static int elf_dynsymbol_find_index_by_name(int descriptor, char const *name, size_t *index)
-{
-    int result = SUCCESS;
-    Elf_Shdr *dynsym = NULL;
-
-    TRY
-    {
-        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
-        CHECK_RESULT(elf_symbol_find_index_by_name(descriptor, dynsym, name, index));
-    }
-    CATCH(error)
-    {
-        fprintf(stderr, "Failed to get .dynsym symbol for %s, error: %s\n", name, strerror(error));
-        result = error;
-    }
-
-    elf_section_destroy(dynsym);
-
-    return result;
-}
-
-static int elf_dynsymbol_find_index_by_address(int descriptor, Elf_Addr address, size_t *index)
-{
-    int result = SUCCESS;
-    Elf_Shdr *dynsym = NULL;
-
-    TRY
-    {
-        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
-        CHECK_RESULT(elf_symbol_find_index_by_address(descriptor, dynsym, address, index));
-    }
-    CATCH(error)
-    {
-        fprintf(stderr, "Failed to get .dynsym symbol for %p, error: %s\n", (void*)address, strerror(error));
-        result = error;
-    }
-
-    elf_section_destroy(dynsym);
-
-    return result;
 }
 
 void *elf_hook(void *function_address, void *substitution_address)
