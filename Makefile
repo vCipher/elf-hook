@@ -10,7 +10,7 @@ ${OUTPUT_DIR}:
 ${INTERMEDIATE_DIR}:
 	mkdir $@
 
-${OUTPUT_DIR}/libelf-hook.so: force
+${OUTPUT_DIR}/libelf-hook.a: force
 	make -C ${SOURCE_DIR} $@ \
 	INTERMEDIATE_DIR=${INTERMEDIATE_DIR} \
 	OUTPUT_DIR=${OUTPUT_DIR}
@@ -20,9 +20,10 @@ ${OUTPUT_DIR}/test: force
 	INTERMEDIATE_DIR=${INTERMEDIATE_DIR} \
 	OUTPUT_DIR=${OUTPUT_DIR}
 
-all: ${OUTPUT_DIR}/libelf-hook.so ${OUTPUT_DIR}/test
+all: ${OUTPUT_DIR}/libelf-hook.a ${OUTPUT_DIR}/test
 
 test: all
+
 force:
 
 rebuild: clean build

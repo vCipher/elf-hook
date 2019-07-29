@@ -22,18 +22,23 @@ CPP=g++
 CPPFLAGS=${CFLAGS} -std=c++11
 
 LD=gcc
-LDFLAGS_LIB=-shared
-LDFLAGS_EXE=-pie -Wl,-rpath,.
-LDLIBS_LIB=${OUTPUT_DIR}/libelf-hook.so -lgtest -lgmock -lstdc++ -pthread
+LDFLAGS_LIB=-shared -Wl,-rpath,'$$ORIGIN'
+LDFLAGS_EXE=-pie -Wl,-rpath,'$$ORIGIN'
+LDLIBS_LIB=${OUTPUT_DIR}/libelf-hook.a -ldl -lgtest -lgmock -lstdc++ -pthread
 LDLIBS_EXE=${OUTPUT_DIR}/libtest.so
 
 AS=as
 ASFLAGS=
 
+${OUTPUT_DIR}/libdep.so: force
+	make -C dep $@ \
+	INTERMEDIATE_DIR=${INTERMEDIATE_DIR} \
+	OUTPUT_DIR=${OUTPUT_DIR}
+
 ${OUTPUT_DIR}/libtest.so: ${OBJECTS} ${OUTPUT_DIR} 
 	${LD} ${LDFLAGS_LIB} -o $@ ${OBJECTS} ${LDLIBS_LIB}
 
-${OUTPUT_DIR}/test: ${OUTPUT_DIR} ${OUTPUT_DIR}/libtest.so
+${OUTPUT_DIR}/test: ${OUTPUT_DIR} ${OUTPUT_DIR}/libtest.so ${OUTPUT_DIR}/libdep.so
 	${LD} ${LDFLAGS_EXE} -o $@ ${LDLIBS_EXE}
 
 ${OUTPUT_DIR}:
@@ -63,4 +68,6 @@ clean:
 	rm -f ${OUTPUT_DIR}/libtest.so
 	rm -f ${OBJECTS}
 
-.PHONY: all clean
+force:
+
+.PHONY: all clean force

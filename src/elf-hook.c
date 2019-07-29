@@ -8,7 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "dl-addr.h"
+#include "dl-info.h"
 #include "elf-defs.h"
 #include "elf-relocation.h"
 #include "elf-symbol.h"
@@ -33,27 +33,6 @@ static int elf_dynsymbol_find_index_by_name(int descriptor, char const *name, si
     CATCH(error)
     {
         fprintf(stderr, "Failed to get .dynsym symbol for %s, error: %s\n", name, strerror(error));
-        result = error;
-    }
-
-    elf_section_destroy(dynsym);
-
-    return result;
-}
-
-static int elf_dynsymbol_find_index_by_address(int descriptor, Elf_Addr address, size_t *index)
-{
-    int result = SUCCESS;
-    Elf_Shdr *dynsym = NULL;
-
-    TRY
-    {
-        CHECK_RESULT(elf_section_find_by_type(descriptor, SHT_DYNSYM, &dynsym));
-        CHECK_RESULT(elf_symbol_find_index_by_address(descriptor, dynsym, address, index));
-    }
-    CATCH(error)
-    {
-        fprintf(stderr, "Failed to get .dynsym symbol for %p, error: %s\n", (void*)address, strerror(error));
         result = error;
     }
 
@@ -234,9 +213,10 @@ static void *elf_hook_internal(int descriptor, void *module_address, size_t symb
     return original;
 }
 
-void *elf_hook(void *function_address, void *substitution_address)
+void *elf_hook(dl_info_t *dl_info, const char *function_name, void *substitution_address)
 {
-    if (function_address == NULL) return NULL;
+    if (dl_info == NULL) return NULL;
+    if (function_name == NULL) return NULL;
     if (substitution_address == NULL) return NULL;
 
     int descriptor = -1;
@@ -244,49 +224,16 @@ void *elf_hook(void *function_address, void *substitution_address)
 
     TRY
     {
-        char const *module_filename = NULL;
-        void *module_address = NULL;
-
-        CHECK_RESULT(get_module_base_address(function_address, &module_filename, &module_address));
-        CHECK_RESULT(elf_file_open(module_filename, &descriptor));
-
         size_t symbol_index = -1;
-        Elf_Addr symbol_address = function_address - module_address;
-        CHECK_RESULT(elf_dynsymbol_find_index_by_address(descriptor, symbol_address, &symbol_index));
 
-        result = elf_hook_internal(descriptor, module_address, symbol_index, substitution_address);
+        CHECK_RESULT(elf_file_open(dl_info->file_name, &descriptor));
+        CHECK_RESULT(elf_dynsymbol_find_index_by_name(descriptor, function_name, &symbol_index));
+
+        result = elf_hook_internal(descriptor, dl_info->base_address, symbol_index, substitution_address);
     }
     CATCH()
     {
-        fprintf(stderr, "Failed to hook function %p with %p\n", function_address, substitution_address);
-    }
-
-    if (descriptor != -1)
-        close(descriptor);
-
-    return result;
-}
-
-void *elf_hook_dl(const char *module_filename, void *module_address, const char *name, void *substitution)
-{
-    if (module_filename == NULL) return NULL;
-    if (name == NULL) return NULL;
-    if (substitution == NULL) return NULL;
-
-    int descriptor = -1;
-    void *result = NULL;
-
-    TRY
-    {
-        size_t symbol_index = -1;
-        CHECK_RESULT(elf_file_open(module_filename, &descriptor));
-        CHECK_RESULT(elf_dynsymbol_find_index_by_name(descriptor, name, &symbol_index));
-
-        result = elf_hook_internal(descriptor, module_address, symbol_index, substitution);
-    }
-    CATCH()
-    {
-        fprintf(stderr, "Failed to hook function %s with %p\n", name, substitution);
+        fprintf(stderr, "Failed to hook function %s with %p\n", function_name, substitution_address);
     }
 
     if (descriptor != -1)

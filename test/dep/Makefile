@@ -23,8 +23,8 @@ ARFLAGS=rcs
 AS=as
 ASFLAGS=
 
-${OUTPUT_DIR}/libelf-hook.a: ${OBJECTS} ${OUTPUT_DIR}
-	${AR} ${ARFLAGS} -o $@ ${OBJECTS}
+${OUTPUT_DIR}/libdep.so: ${OBJECTS} ${OUTPUT_DIR}
+	${LD} ${LDFLAGS} -o $@ ${OBJECTS}
 
 ${OUTPUT_DIR}:
 	mkdir $@
@@ -43,10 +43,10 @@ ${INTERMEDIATE_DIR}/%.c.o: %.c
 ${INTERMEDIATE_DIR}/%.s.o: %.s
 	${AS} ${ASFLAGS} $< -o $@
 
-all: ${OUTPUT_DIR}/libelf-hook.a
+all: ${OUTPUT_DIR}/libdep.so
 
 clean:
-	rm -f ${OUTPUT_DIR}/libelf-hook.a
+	rm -f ${OUTPUT_DIR}/libdep.so
 	rm -f ${OBJECTS}
 
 .PHONY: all clean
