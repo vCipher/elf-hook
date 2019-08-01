@@ -32,7 +32,7 @@ rebuild: clean build
 
 install:
 	mkdir -p ${INSTALL_INCLUDE}
-	mkdir ${INSTALL_LIB}
+	mkdir -p ${INSTALL_LIB}
 	cp src/elf-hook.h ${INSTALL_INCLUDE}/elf-hook.h
 	cp src/externc.h ${INSTALL_INCLUDE}/externc.h
 	cp src/dl-info.h ${INSTALL_INCLUDE}/dl-info.h
