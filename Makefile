@@ -1,30 +1,12 @@
-INTERMEDIATE_DIR?=stage
-OUTPUT_DIR?=bin
+CURRENT_DIR=$(shell pwd)
+INTERMEDIATE_DIR=${CURRENT_DIR}/stage
+OUTPUT_DIR=${CURRENT_DIR}/bin
+SOURCE_DIR=${CURRENT_DIR}/src
+TEST_DIR=${CURRENT_DIR}/test
 
-SRC_DIRS=.
-C_FILES=$(wildcard ${dir}/*.c)
-C_SOURCES=$(foreach dir,${SRC_DIRS},${C_FILES})
-C_OBJECTS=$(patsubst %.c,${INTERMEDIATE_DIR}/%.c.o,${C_SOURCES})
-ASM_FILES=$(wildcard ${dir}/*.s)
-ASM_SOURCES=$(foreach dir,${SRC_DIRS},${ASM_FILES})
-ASM_OBJECTS=$(patsubst %.s,${INTERMEDIATE_DIR}/%.s.o,${ASM_SOURCES})
-OBJECTS=${ASM_OBJECTS} ${C_OBJECTS}
-INTERMEDIATE_DIRS=$(foreach dir,${SRC_DIRS},${INTERMEDIATE_DIR}/${dir})
-
-CC=gcc
-CC_FLAGS=$(CFLAGS) -m64 -std=gnu99 -O0 -Wall -Wextra -Werror -g -fpic
-
-LD=gcc
-LD_FLAGS=-shared
-
-AR=ar
-AR_FLAGS=rcs
-
-AS=as
-AS_FLAGS=
-
-${OUTPUT_DIR}/libelf-hook.a: ${OBJECTS} ${OUTPUT_DIR}
-	${AR} ${AS_FLAGS} -o $@ ${OBJECTS}
+INSTALL_PREFIX=?/usr
+INSTALL_INCLUDE=${INSTALL_PREFIX}/include/elf-hook
+INSTALL_LIB=${INSTALL_PREFIX}/lib
 
 ${OUTPUT_DIR}:
 	mkdir $@
@@ -32,21 +14,34 @@ ${OUTPUT_DIR}:
 ${INTERMEDIATE_DIR}:
 	mkdir $@
 
-${OBJECTS}: | ${INTERMEDIATE_DIRS}
+build_lib:
+	make -C ${SOURCE_DIR} ${OUTPUT_DIR}/libelf-hook.a \
+	CFLAGS=${CFLAGS} \
+	INTERMEDIATE_DIR=${INTERMEDIATE_DIR} \
+	OUTPUT_DIR=${OUTPUT_DIR}
 
-${INTERMEDIATE_DIRS}:
-	@mkdir -p $@
+build_test:
+	make -C ${TEST_DIR} ${OUTPUT_DIR}/test \
+	CFLAGS=${CFLAGS} \
+	INTERMEDIATE_DIR=${INTERMEDIATE_DIR} \
+	OUTPUT_DIR=${OUTPUT_DIR}
 
-${INTERMEDIATE_DIR}/%.c.o: %.c
-	${CC} ${CC_FLAGS} -c $< -o $@
+all: build_lib build_test
 
-${INTERMEDIATE_DIR}/%.s.o: %.s
-	${AS} ${AS_FLAGS} $< -o $@
+force:
 
-all: ${OUTPUT_DIR}/libelf-hook.a
+rebuild: clean build
 
-clean:
-	rm -f ${OUTPUT_DIR}/libelf-hook.a
-	rm -f ${OBJECTS}
+install:
+	mkdir -p ${INSTALL_INCLUDE}
+	mkdir -p ${INSTALL_LIB}
+	cp src/elf-hook.h ${INSTALL_INCLUDE}/elf-hook.h
+	cp src/externc.h ${INSTALL_INCLUDE}/externc.h
+	cp src/dl-info.h ${INSTALL_INCLUDE}/dl-info.h
+	cp bin/libelf-hook.a ${INSTALL_LIB}/libelf-hook.a
 
-.PHONY: all clean
+clean: force
+	rm -rf ${INTERMEDIATE_DIR}
+	rm -rf ${OUTPUT_DIR}
+
+.PHONY: all clean test rebuild install force
