@@ -12,19 +12,19 @@ OBJECTS=${ASM_OBJECTS} ${C_OBJECTS}
 INTERMEDIATE_DIRS=$(foreach dir,${SRC_DIRS},${INTERMEDIATE_DIR}/${dir})
 
 CC=gcc
-CFLAGS=-m64 -std=gnu99 -O0 -Wall -Wextra -Werror -g -fpic
+CC_FLAGS=$(CFLAGS) -m64 -std=gnu99 -O0 -Wall -Wextra -Werror -g -fpic
 
 LD=gcc
-LDFLAGS=-shared
+LD_FLAGS=-shared
 
 AR=ar
-ARFLAGS=rcs
+AR_FLAGS=rcs
 
 AS=as
-ASFLAGS=
+AS_FLAGS=
 
 ${OUTPUT_DIR}/libelf-hook.a: ${OBJECTS} ${OUTPUT_DIR}
-	${AR} ${ARFLAGS} -o $@ ${OBJECTS}
+	${AR} ${AR_FLAGS} -o $@ ${OBJECTS}
 
 ${OUTPUT_DIR}:
 	mkdir $@
@@ -38,10 +38,10 @@ ${INTERMEDIATE_DIRS}:
 	@mkdir -p $@
 
 ${INTERMEDIATE_DIR}/%.c.o: %.c
-	${CC} ${CFLAGS} -c $< -o $@
+	${CC} ${CC_FLAGS} -c $< -o $@
 
 ${INTERMEDIATE_DIR}/%.s.o: %.s
-	${AS} ${ASFLAGS} $< -o $@
+	${AS} ${AS_FLAGS} $< -o $@
 
 all: ${OUTPUT_DIR}/libelf-hook.a
 
