@@ -20,7 +20,7 @@ int dl_get_info_by_address(void *address, dl_info_t *info)
     }
 
     struct link_map *map = (struct link_map*)extra;
-    info->file_name = map->l_name;
+    info->file_name = dl_info.dli_fname;
     info->base_address = (void*)map->l_addr;
 
     return SUCCESS;
